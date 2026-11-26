@@ -1,4 +1,4 @@
-name: Build TrollVNC from owngoal-dev
+name: Build TrollVNC Official Package
 
 on:
   push:
@@ -21,45 +21,37 @@ jobs:
           git clone --depth 1 https://github.com/theos/sdks.git $HOME/theos_sdks
           cp -r $HOME/theos_sdks/iPhoneOS16.5.sdk "$HOME/theos/sdks/"
 
-      - name: Bien dich trollvncserver va ung dung TrollVNC.app
+      - name: Bien dich va dong goi chuan cau truc TrollVNC
         run: |
           export THEOS=$HOME/theos
           export SYSROOT="$HOME/theos/sdks/iPhoneOS16.5.sdk"
           cd vnc_src
           
-          # Bo qua cac module Jailbreak (prefs, cc) va tat -fmodules de tranh loi Xcode 26
+          # Bo qua module Jailbreak (prefs, cc) va tat -fmodules
           sed -i '' 's/SUBPROJECTS.*/SUBPROJECTS = app\/TrollVNC/' Makefile
-          
-          # Build trollvncserver va TrollVNC.app
           make stage FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ADDITIONAL_CFLAGS="-fno-modules" ADDITIONAL_OBJCFLAGS="-fno-modules"
           
-          # Chay script dong goi TIPA neu co, hoac tu dong goi chuan cau truc TrollVNC
-          if [ -f "devkit/build-tipa.sh" ]; then
-            chmod +x devkit/build-tipa.sh
-            ./devkit/build-tipa.sh || true
-          fi
+          # Kiem tra cau truc thu muc stage de dong goi chinh xac
+          STAGE_DIR=".theos/_/var/jb"
+          mkdir -p Payload/TrollVNC.app
           
-          OUT_FILE=$(find . -maxdepth 3 \( -name "*.tipa" -o -name "*.ipa" \) | head -n 1)
-          if [ -n "$OUT_FILE" ]; then
-            cp "$OUT_FILE" ../TrollVNC_iOS16.tipa
-          else
-            mkdir -p Payload
-            APP_DIR=$(find .theos -name "TrollVNC.app" | head -n 1)
-            cp -r "$APP_DIR" Payload/
-            SERVER_BIN=$(find .theos -name "trollvncserver" -type f | head -n 1)
-            cp "$SERVER_BIN" Payload/TrollVNC.app/
-            
-            # Ky quyen entitlements co san trong repo TrollVNC
-            ENT_APP=$(find . -name "*TrollVNC*entitlements*.plist" -o -name "entitlements.plist" | head -n 1)
-            ENT_SRV=$(find . -name "*server*entitlements*.plist" | head -n 1)
-            if [ -n "$ENT_APP" ]; then ldid -S"$ENT_APP" Payload/TrollVNC.app/TrollVNC; fi
-            if [ -n "$ENT_SRV" ]; then ldid -S"$ENT_SRV" Payload/TrollVNC.app/trollvncserver; fi
-            
-            zip -r ../TrollVNC_iOS16.tipa Payload
-          fi
+          APP_SRC=$(find "$STAGE_DIR" -name "TrollVNC.app" | head -n 1)
+          cp -rn "$APP_SRC/"* Payload/TrollVNC.app/
+          
+          # Chep trollvncserver va cap quyen thuc thi +x
+          SRV_SRC=$(find "$STAGE_DIR" -name "trollvncserver" -type f | head -n 1)
+          cp "$SRV_SRC" Payload/TrollVNC.app/trollvncserver
+          chmod +x Payload/TrollVNC.app/TrollVNC
+          chmod +x Payload/TrollVNC.app/trollvncserver
+          
+          # Ky entitlements rieng cho tung file thuc thi
+          ldid -Sapp/TrollVNC/entitlements.plist Payload/TrollVNC.app/TrollVNC 2>/dev/null || ldid -Sentitlements.plist Payload/TrollVNC.app/TrollVNC
+          ldid -Sentitlements.plist Payload/TrollVNC.app/trollvncserver
+          
+          zip -r ../TrollVNC_Fixed.tipa Payload
 
-      - name: Xuat file TrollVNC_iOS16.tipa
+      - name: Xuat file TrollVNC_Fixed.tipa
         uses: actions/upload-artifact@v4
         with:
-          name: TrollVNC-iOS16-TIPA
-          path: TrollVNC_iOS16.tipa
+          name: TrollVNC-Fixed-TIPA
+          path: TrollVNC_Fixed.tipa
