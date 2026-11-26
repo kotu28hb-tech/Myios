@@ -19,56 +19,71 @@ jobs:
       - name: Tai ma nguon WebDriverAgent chinh chu
         run: git clone --depth 1 https://github.com/appium/WebDriverAgent.git wda_src
 
-      - name: Bien dich WebDriverAgentRunner (Tuong thich iOS 15-16)
+      - name: Bien dich WebDriverAgentLib (Framework loi)
         run: |
           cd wda_src
-          xcodebuild build-for-testing \
+          xcodebuild build \
             -project WebDriverAgent.xcodeproj \
-            -scheme WebDriverAgentRunner \
+            -scheme WebDriverAgentLib \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build_out \
             IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-            ENABLE_TESTING_SEARCH_PATHS=YES \
+            MACH_O_TYPE=staticlib \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES
+            CODE_SIGN_IDENTITY=""
 
-      - name: Loc bo Mach-O loi va dong goi file IPA chuan
+      - name: Dong goi ung dung doc lap WDA.app cho TrollStore
         run: |
-          mkdir -p Payload
-          APP_PATH=$(find wda_src/build_out -name "WebDriverAgentRunner-Runner.app" | head -n 1)
-          cp -r "$APP_PATH" Payload/
+          mkdir -p Payload/WDA.app
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          LIB_PATH=$(find wda_src/build_out -name "WebDriverAgentLib" -o -name "libWebDriverAgentLib.a" | head -n 1)
           
-          # Xoa chu ky cu va thu vien Testing moi cua Xcode 26 gay loi ldid tren iOS 16
-          find Payload/WebDriverAgentRunner-Runner.app -name "_CodeSignature" -exec rm -rf {} +
-          rm -rf Payload/WebDriverAgentRunner-Runner.app/Frameworks/Testing.framework
-          rm -rf Payload/WebDriverAgentRunner-Runner.app/Frameworks/_Testing_Foundation.framework
-          
-          # Kiem tra tung file Mach-O trong Frameworks, file nao loi ldid thi xoa bo
-          if [ -d "Payload/WebDriverAgentRunner-Runner.app/Frameworks" ]; then
-            for item in Payload/WebDriverAgentRunner-Runner.app/Frameworks/*; do
-              if [ -d "$item" ]; then
-                bin_name=$(basename "$item" .framework)
-                if [ -f "$item/$bin_name" ]; then
-                  if ! ldid -S "$item/$bin_name" 2>/dev/null; then
-                    echo "Xoa framework khong tuong thich: $item"
-                    rm -rf "$item"
-                  fi
-                fi
-              elif [ -f "$item" ]; then
-                if ! ldid -S "$item" 2>/dev/null; then
-                  echo "Xoa dylib khong tuong thich: $item"
-                  rm -f "$item"
-                fi
-              fi
-            done
-          fi
-          
-          # Gan quyen TrollStore vao 2 file thuc thi chinh
-          ldid -Sentitlements.plist Payload/WebDriverAgentRunner-Runner.app/WebDriverAgentRunner-Runner
-          ldid -Sentitlements.plist Payload/WebDriverAgentRunner-Runner.app/PlugIns/WebDriverAgentRunner.xctest/WebDriverAgentRunner
-          
+          # Bien dich app chinh lien ket tinh voi WebDriverAgentLib
+          xcrun -sdk iphoneos clang -arch arm64 \
+            -isysroot "$SDK_PATH" \
+            -mios-version-min=15.0 \
+            -ObjC \
+            -Iwda_src \
+            -Iwda_src/WebDriverAgentLib \
+            -Iwda_src/WebDriverAgentLib/Routing \
+            -Iwda_src/WebDriverAgentLib/Utilities \
+            -framework Foundation -framework UIKit -framework CoreGraphics -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework AVFoundation -framework MobileCoreServices -framework SystemConfiguration -framework Security -framework IOKit -framework XCTest \
+            -F"$(xcrun --sdk iphoneos --show-platform-path)/Developer/Library/Frameworks" \
+            -F"$(xcrun --sdk iphoneos --show-platform-path)/Developer/Library/PrivateFrameworks" \
+            wda_main.m "$LIB_PATH" -o Payload/WDA.app/WDA
+
+          # Tao Info.plist chuan
+          cat << 'EOF' > Payload/WDA.app/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>WDA</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.kotu28hb.wda</string>
+              <key>CFBundleName</key>
+              <string>WDA</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>UIBackgroundModes</key>
+              <array>
+                  <string>audio</string>
+                  <string>voip</string>
+              </array>
+          </dict>
+          </plist>
+          EOF
+
+          # Gan quyen TrollStore truc tiep vao file thuc thi duy nhat
+          ldid -Sentitlements.plist Payload/WDA.app/WDA
           zip -r WDA_TrollStore.ipa Payload
 
       - name: Xuat file IPA thanh pham
