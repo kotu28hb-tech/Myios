@@ -10,6 +10,8 @@
     <true/>
     <key>com.apple.private.hid.manager.client</key>
     <true/>
+    <key>com.apple.backboardd.launchapplications</key>
+    <true/>
     <key>com.apple.multitasking.unlimitedassertions</key>
     <true/>
 </dict>
