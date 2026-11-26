@@ -1,4 +1,4 @@
-name: Build TrollVNC Official Package
+name: Build TrollVNC Fast
 
 on:
   push:
@@ -8,43 +8,43 @@ on:
 jobs:
   build-trollvnc:
     runs-on: macos-latest
+    timeout-minutes: 8
 
     steps:
       - name: Tai ma nguon owngoal-dev/TrollVNC
-        run: git clone --recursive https://github.com/owngoal-dev/TrollVNC.git vnc_src
+        run: git clone --depth 1 --recursive https://github.com/owngoal-dev/TrollVNC.git vnc_src
 
-      - name: Cai dat Theos, ldid va SDK 16.5
+      - name: Cai dat Theos, ldid va SDK 16.5 (chi tai thu muc can thiet)
         run: |
           brew install ldid dpkg
-          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          git clone --depth 1 --recursive https://github.com/theos/theos.git $HOME/theos
           mkdir -p $HOME/theos/sdks
-          git clone --depth 1 https://github.com/theos/sdks.git $HOME/theos_sdks
+          
+          # Chi tai rieng thu muc iPhoneOS16.5.sdk thay vi tai toan bo repo sdks
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git $HOME/theos_sdks
+          cd $HOME/theos_sdks && git sparse-checkout set iPhoneOS16.5.sdk
           cp -r $HOME/theos_sdks/iPhoneOS16.5.sdk "$HOME/theos/sdks/"
 
-      - name: Bien dich va dong goi chuan cau truc TrollVNC
+      - name: Bien dich da nhan va dong goi chuan TrollStore
         run: |
           export THEOS=$HOME/theos
           export SYSROOT="$HOME/theos/sdks/iPhoneOS16.5.sdk"
           cd vnc_src
           
-          # Bo qua module Jailbreak (prefs, cc) va tat -fmodules
           sed -i '' 's/SUBPROJECTS.*/SUBPROJECTS = app\/TrollVNC/' Makefile
-          make stage FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ADDITIONAL_CFLAGS="-fno-modules" ADDITIONAL_OBJCFLAGS="-fno-modules"
+          make stage -j$(sysctl -n hw.ncpu) FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ADDITIONAL_CFLAGS="-fno-modules" ADDITIONAL_OBJCFLAGS="-fno-modules"
           
-          # Kiem tra cau truc thu muc stage de dong goi chinh xac
           STAGE_DIR=".theos/_/var/jb"
           mkdir -p Payload/TrollVNC.app
           
           APP_SRC=$(find "$STAGE_DIR" -name "TrollVNC.app" | head -n 1)
           cp -rn "$APP_SRC/"* Payload/TrollVNC.app/
           
-          # Chep trollvncserver va cap quyen thuc thi +x
           SRV_SRC=$(find "$STAGE_DIR" -name "trollvncserver" -type f | head -n 1)
           cp "$SRV_SRC" Payload/TrollVNC.app/trollvncserver
           chmod +x Payload/TrollVNC.app/TrollVNC
           chmod +x Payload/TrollVNC.app/trollvncserver
           
-          # Ky entitlements rieng cho tung file thuc thi
           ldid -Sapp/TrollVNC/entitlements.plist Payload/TrollVNC.app/TrollVNC 2>/dev/null || ldid -Sentitlements.plist Payload/TrollVNC.app/TrollVNC
           ldid -Sentitlements.plist Payload/TrollVNC.app/trollvncserver
           
