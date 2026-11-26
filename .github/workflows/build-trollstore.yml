@@ -14,13 +14,11 @@ jobs:
       - name: Tai ma nguon owngoal-dev/TrollVNC
         run: git clone --depth 1 --recursive https://github.com/owngoal-dev/TrollVNC.git vnc_src
 
-      - name: Cai dat Theos, ldid va SDK 16.5 (chi tai thu muc can thiet)
+      - name: Cai dat Theos, ldid va SDK 16.5
         run: |
           brew install ldid dpkg
           git clone --depth 1 --recursive https://github.com/theos/theos.git $HOME/theos
           mkdir -p $HOME/theos/sdks
-          
-          # Chi tai rieng thu muc iPhoneOS16.5.sdk thay vi tai toan bo repo sdks
           git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git $HOME/theos_sdks
           cd $HOME/theos_sdks && git sparse-checkout set iPhoneOS16.5.sdk
           cp -r $HOME/theos_sdks/iPhoneOS16.5.sdk "$HOME/theos/sdks/"
@@ -34,13 +32,19 @@ jobs:
           sed -i '' 's/SUBPROJECTS.*/SUBPROJECTS = app\/TrollVNC/' Makefile
           make stage -j$(sysctl -n hw.ncpu) FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ADDITIONAL_CFLAGS="-fno-modules" ADDITIONAL_OBJCFLAGS="-fno-modules"
           
-          STAGE_DIR=".theos/_/var/jb"
           mkdir -p Payload/TrollVNC.app
           
-          APP_SRC=$(find "$STAGE_DIR" -name "TrollVNC.app" | head -n 1)
-          cp -rn "$APP_SRC/"* Payload/TrollVNC.app/
+          # Tim chinh xac TrollVNC.app va trollvncserver ben trong .theos
+          APP_SRC=$(find .theos -type d -name "TrollVNC.app" | head -n 1)
+          SRV_SRC=$(find .theos -type f -name "trollvncserver" | head -n 1)
           
-          SRV_SRC=$(find "$STAGE_DIR" -name "trollvncserver" -type f | head -n 1)
+          if [ -z "$APP_SRC" ] || [ -z "$SRV_SRC" ]; then
+            echo "Khong tim thay file build!"
+            find .theos -maxdepth 5
+            exit 1
+          fi
+          
+          cp -rn "$APP_SRC/"* Payload/TrollVNC.app/
           cp "$SRV_SRC" Payload/TrollVNC.app/trollvncserver
           chmod +x Payload/TrollVNC.app/TrollVNC
           chmod +x Payload/TrollVNC.app/trollvncserver
