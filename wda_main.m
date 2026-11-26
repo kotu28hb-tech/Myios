@@ -1,6 +1,6 @@
 #import <UIKit/UIKit.h>
+#import <stdlib.h>
 #import "FBWebServer.h"
-#import "FBConfiguration.h"
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 @property (strong, nonatomic) UIWindow *window;
@@ -26,8 +26,8 @@
     [self.window makeKeyAndVisible];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        [FBConfiguration setBindingPortRange:NSMakeRange(8100, 1)];
-        [FBConfiguration setMjpegServerPort:9100];
+        setenv("USE_PORT", "8100", 1);
+        setenv("MJPEG_SERVER_PORT", "9100", 1);
         self.webServer = [[FBWebServer alloc] init];
         [self.webServer startServing];
     });
