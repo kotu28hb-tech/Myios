@@ -1,4 +1,4 @@
-name: Build WebDriverAgent TrollStore
+name: Build TrollVNC iOS 16
 
 on:
   push:
@@ -6,109 +6,38 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-wda:
+  build-trollvnc:
     runs-on: macos-latest
 
     steps:
       - name: Tai cau hinh repo
         uses: actions/checkout@v4
 
-      - name: Cai dat cong cu ldid
-        run: brew install ldid
-
-      - name: Tai ma nguon WebDriverAgent chinh chu
-        run: git clone --depth 1 https://github.com/appium/WebDriverAgent.git wda_src
-
-      - name: Bien dich WebDriverAgentLib (Static Library)
+      - name: Cai dat cong cu build Theos & ldid
         run: |
-          cd wda_src
-          xcodebuild build \
-            -project WebDriverAgent.xcodeproj \
-            -scheme WebDriverAgentLib \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build_out \
-            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-            MACH_O_TYPE=staticlib \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+          brew install ldid dpkg xz
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          mkdir -p $HOME/theos/sdks
+          curl -L https://github.com/xybp888/iOS-SDKs/releases/download/iOS-SDKs/iPhoneOS16.5.sdk.tar.xz -o sdk.tar.xz
+          tar -xf sdk.tar.xz -C $HOME/theos/sdks/
 
-      - name: Dong goi WDA.app kem du thu vien Runtime cho iOS 16
+      - name: Tai ma nguon TrollVNC (Chuyen biet cho TrollStore iOS 16)
+        run: git clone --recursive https://github.com/Lessica/TrollVNC.git vnc_src
+
+      - name: Bien dich file IPA chuan khong can Developer Mode
         run: |
-          mkdir -p Payload/WDA.app/Frameworks
-          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          PLAT_PATH=$(xcrun --sdk iphoneos --show-sdk-platform-path)
+          export THEOS=$HOME/theos
+          cd vnc_src
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
           
-          LIB_PATH=$(find wda_src/build_out/Build/Products -name "WebDriverAgentLib" -o -name "libWebDriverAgentLib.a" | head -n 1)
-          INC_FLAGS=$(find wda_src/WebDriverAgentLib wda_src/PrivateHeaders -type d 2>/dev/null | sed 's/^/-I/')
-          
-          # Chep cac framework bat buoc cua XCTest vao ben trong WDA.app/Frameworks
-          for fw in XCTest.framework XCTAutomationSupport.framework XCUnit.framework XCUIAutomation.framework; do
-            if [ -d "$PLAT_PATH/Developer/Library/Frameworks/$fw" ]; then
-              cp -r "$PLAT_PATH/Developer/Library/Frameworks/$fw" Payload/WDA.app/Frameworks/
-            elif [ -d "$PLAT_PATH/Developer/Library/PrivateFrameworks/$fw" ]; then
-              cp -r "$PLAT_PATH/Developer/Library/PrivateFrameworks/$fw" Payload/WDA.app/Frameworks/
-            fi
-          done
-          
-          # Xoa _CodeSignature trong cac framework vua chep va ha phien ban toi thieu de ldid iOS 16 doc duoc
-          find Payload/WDA.app/Frameworks -name "_CodeSignature" -exec rm -rf {} +
-          
-          # Bien dich file thuc thi chinh voi rpath tro vao @executable_path/Frameworks
-          xcrun -sdk iphoneos clang++ -arch arm64 \
-            -isysroot "$SDK_PATH" \
-            -mios-version-min=15.0 \
-            -ObjC -fobjc-arc \
-            -Wl,-rpath,@executable_path/Frameworks \
-            -Iwda_src \
-            $INC_FLAGS \
-            -F"$PLAT_PATH/Developer/Library/Frameworks" \
-            -F"$PLAT_PATH/Developer/Library/PrivateFrameworks" \
-            -framework Foundation -framework UIKit -framework CoreGraphics -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework AVFoundation -framework MobileCoreServices -framework SystemConfiguration -framework Security -framework IOKit -framework XCTest \
-            wda_main.m "$LIB_PATH" -o Payload/WDA.app/WDA
-
-          # Tao Info.plist chuan
-          cat << 'EOF' > Payload/WDA.app/Info.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>WDA</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.kotu28hb.wda</string>
-              <key>CFBundleName</key>
-              <string>WDA</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>UIBackgroundModes</key>
-              <array>
-                  <string>audio</string>
-                  <string>voip</string>
-              </array>
-          </dict>
-          </plist>
-          EOF
-
-          # Ky quyen cho app chinh va cac framework con
-          ldid -Sentitlements.plist Payload/WDA.app/WDA
-          for fw in Payload/WDA.app/Frameworks/*.framework; do
-            fw_name=$(basename "$fw" .framework)
-            if [ -f "$fw/$fw_name" ]; then
-              ldid -S "$fw/$fw_name" || rm -rf "$fw"
-            fi
-          done
-          
-          zip -r WDA_TrollStore.ipa Payload
+          # Dong goi thanh file .ipa cho TrollStore
+          mkdir -p Payload
+          APP_DIR=$(find .theos -name "*.app" | head -n 1)
+          cp -r "$APP_DIR" Payload/
+          zip -r ../TrollVNC_iOS16.ipa Payload
 
       - name: Xuat file IPA thanh pham
         uses: actions/upload-artifact@v4
         with:
-          name: WDA-TrollStore-IPA
-          path: WDA_TrollStore.ipa
+          name: TrollVNC-iOS16-IPA
+          path: TrollVNC_iOS16.ipa
