@@ -10,9 +10,9 @@ typedef void* IOHIDEventSystemClientRef;
 typedef void* IOHIDEventRef;
 
 typedef IOHIDEventSystemClientRef (*p_IOHIDEventSystemClientCreate)(CFAllocatorRef allocator);
-typedef IOHIDEventRef (*p_IOHIDEventCreateDigitizerEvent)(CFAllocatorRef allocator, uint64_t timeStamp, uint32_t transducerType, uint32_t index, uint32_t identity, uint32_t eventMask, uint32_t buttonMask, double x, double y, double z, double tipPressure, double barrelPressure, boolean_t range, boolean_t touch, IOOptionBits options);
-typedef IOHIDEventRef (*p_IOHIDEventCreateDigitizerFingerEvent)(CFAllocatorRef allocator, uint64_t timeStamp, uint32_t index, uint32_t identity, uint32_t eventMask, double x, double y, double z, double tipPressure, double twist, boolean_t range, boolean_t touch, IOOptionBits options);
-typedef void (*p_IOHIDEventAppendEvent)(IOHIDEventRef parent, IOHIDEventRef child, IOOptionBits options);
+typedef IOHIDEventRef (*p_IOHIDEventCreateDigitizerEvent)(CFAllocatorRef allocator, uint64_t timeStamp, uint32_t transducerType, uint32_t index, uint32_t identity, uint32_t eventMask, uint32_t buttonMask, double x, double y, double z, double tipPressure, double barrelPressure, boolean_t range, boolean_t touch, uint32_t options);
+typedef IOHIDEventRef (*p_IOHIDEventCreateDigitizerFingerEvent)(CFAllocatorRef allocator, uint64_t timeStamp, uint32_t index, uint32_t identity, uint32_t eventMask, double x, double y, double z, double tipPressure, double twist, boolean_t range, boolean_t touch, uint32_t options);
+typedef void (*p_IOHIDEventAppendEvent)(IOHIDEventRef parent, IOHIDEventRef child, uint32_t options);
 typedef void (*p_IOHIDEventSetIntegerValue)(IOHIDEventRef event, uint32_t field, CFIndex value);
 typedef void (*p_IOHIDEventSystemClientDispatchEvent)(IOHIDEventSystemClientRef client, IOHIDEventRef event);
 
