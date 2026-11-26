@@ -153,7 +153,7 @@ NSString* getWiFiIPAddress() {
 
 - (void)keepAliveInBackground {
     AVAudioSession *session = [AVAudioSession sharedInstance];
-    [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryMixWithOthers error:nil];
+    [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
     [session setActive:YES error:nil];
     
     self.audioEngine = [[AVAudioEngine alloc] init];
