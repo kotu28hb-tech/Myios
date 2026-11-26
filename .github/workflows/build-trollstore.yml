@@ -1,4 +1,4 @@
-﻿name: Build TrollStore IPA
+name: Build TrollStore IPA
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
           xcrun -sdk iphoneos clang -arch arm64 \
             -isysroot "$SDK_PATH" \
             -mios-version-min=15.0 \
-            -framework Foundation -framework UIKit -framework CoreGraphics -framework IOKit \
+            -framework Foundation -framework UIKit -framework CoreGraphics -framework IOKit -framework AVFoundation \
             main.m -o Payload/RemoteServer.app/RemoteServer
           cp Info.plist Payload/RemoteServer.app/Info.plist
           ldid -Sentitlements.plist Payload/RemoteServer.app/RemoteServer
