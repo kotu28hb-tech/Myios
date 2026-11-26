@@ -13,28 +13,36 @@ jobs:
       - name: Tai cau hinh repo
         uses: actions/checkout@v4
 
-      - name: Cai dat cong cu build Theos & ldid
+      - name: Cai dat cong cu Theos & ldid
         run: |
-          brew install ldid dpkg xz
+          brew install ldid dpkg
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           mkdir -p $HOME/theos/sdks
-          curl -L https://github.com/xybp888/iOS-SDKs/releases/download/iOS-SDKs/iPhoneOS16.5.sdk.tar.xz -o sdk.tar.xz
-          tar -xf sdk.tar.xz -C $HOME/theos/sdks/
+          # Lien ket truc tiep SDK co san trong Xcode cua may chu Mac
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          ln -s "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
 
-      - name: Tai ma nguon TrollVNC (Chuyen biet cho TrollStore iOS 16)
+      - name: Tai ma nguon TrollVNC
         run: git clone --recursive https://github.com/Lessica/TrollVNC.git vnc_src
 
-      - name: Bien dich file IPA chuan khong can Developer Mode
+      - name: Bien dich file IPA chuan cho TrollStore
         run: |
           export THEOS=$HOME/theos
+          export SYSROOT="$HOME/theos/sdks/iPhoneOS.sdk"
           cd vnc_src
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
           
-          # Dong goi thanh file .ipa cho TrollStore
-          mkdir -p Payload
-          APP_DIR=$(find .theos -name "*.app" | head -n 1)
-          cp -r "$APP_DIR" Payload/
-          zip -r ../TrollVNC_iOS16.ipa Payload
+          # Kiem tra xem TrollVNC co san script build TrollStore hay khong
+          if [ -f "build_trollstore.sh" ]; then
+            chmod +x build_trollstore.sh
+            ./build_trollstore.sh
+            cp packages/*.ipa ../TrollVNC_iOS16.ipa
+          else
+            make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+            mkdir -p Payload
+            APP_DIR=$(find .theos -name "*.app" | head -n 1)
+            cp -r "$APP_DIR" Payload/
+            zip -r ../TrollVNC_iOS16.ipa Payload
+          fi
 
       - name: Xuat file IPA thanh pham
         uses: actions/upload-artifact@v4
