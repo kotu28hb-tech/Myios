@@ -1,4 +1,4 @@
-name: Build TrollVNC iOS 16
+name: Build Native iOS Mirror & Control
 
 on:
   push:
@@ -6,38 +6,61 @@ on:
   workflow_dispatch:
 
 jobs:
-  get-trollvnc:
+  build:
     runs-on: macos-latest
 
     steps:
-      - name: Tai ban phat hanh TrollVNC IPA chinh thuc tu 82Flex
+      - name: Tai ma nguon tu repo Myios
+        uses: actions/checkout@v4
+
+      - name: Cai dat ldid
+        run: brew install ldid
+
+      - name: Bien dich server.m thanh file IPA TrollStore
         run: |
-          # Lay URL file .ipa moi nhat tu GitHub Releases cua 82Flex/TrollVNC
-          IPA_URL=$(curl -s https://api.github.com/repos/82Flex/TrollVNC/releases/latest | grep "browser_download_url.*\.ipa" | cut -d '"' -f 4 | head -n 1)
+          mkdir -p Payload/iOSMirror.app
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
           
-          if [ -n "$IPA_URL" ]; then
-            echo "Tim thay ban phat hanh chuan: $IPA_URL"
-            curl -L "$IPA_URL" -o TrollVNC_iOS16.ipa
-          else
-            echo "Khong tim thay file .ipa san, chuyen sang tu bien dich tu 82Flex/TrollVNC..."
-            brew install ldid dpkg
-            git clone --recursive https://github.com/theos/theos.git $HOME/theos
-            mkdir -p $HOME/theos/sdks
-            ln -s "$(xcrun --sdk iphoneos --show-sdk-path)" "$HOME/theos/sdks/iPhoneOS.sdk"
-            
-            git clone --recursive https://github.com/82Flex/TrollVNC.git vnc_src
-            export THEOS=$HOME/theos
-            export SYSROOT="$HOME/theos/sdks/iPhoneOS.sdk"
-            cd vnc_src
-            make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
-            mkdir -p Payload
-            APP_DIR=$(find .theos -name "*.app" | head -n 1)
-            cp -r "$APP_DIR" Payload/
-            zip -r ../TrollVNC_iOS16.ipa Payload
-          fi
+          xcrun -sdk iphoneos clang -arch arm64 \
+            -isysroot "$SDK_PATH" \
+            -mios-version-min=15.0 \
+            -fobjc-arc \
+            -framework Foundation -framework UIKit -framework CoreGraphics -framework IOSurface -framework ImageIO -framework MobileCoreServices -framework AVFoundation -framework IOKit \
+            server.m -o Payload/iOSMirror.app/iOSMirror
+
+          cat << 'EOF' > Payload/iOSMirror.app/Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>iOSMirror</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.kotu28hb.iosmirror</string>
+              <key>CFBundleName</key>
+              <string>iOSMirror</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>LSRequiresIPhoneOS</key>
+              <true/>
+              <key>UIBackgroundModes</key>
+              <array>
+                  <string>audio</string>
+                  <string>voip</string>
+              </array>
+          </dict>
+          </plist>
+          EOF
+
+          ldid -Sentitlements.plist Payload/iOSMirror.app/iOSMirror
+          zip -r iOSMirror_TrollStore.ipa Payload
 
       - name: Xuat file IPA thanh pham
         uses: actions/upload-artifact@v4
         with:
-          name: TrollVNC-iOS16-IPA
-          path: TrollVNC_iOS16.ipa
+          name: iOSMirror-IPA
+          path: iOSMirror_TrollStore.ipa
