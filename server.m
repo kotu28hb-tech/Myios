@@ -1,9 +1,7 @@
 #import <UIKit/UIKit.h>
+#import <ReplayKit/ReplayKit.h>
 #import <AVFoundation/AVFoundation.h>
-#import <IOSurface/IOSurfaceRef.h>
-#import <CoreGraphics/CoreGraphics.h>
-#import <ImageIO/ImageIO.h>
-#import <MobileCoreServices/MobileCoreServices.h>
+#import <CoreImage/CoreImage.h>
 #import <dlfcn.h>
 #import <sys/socket.h>
 #import <netinet/in.h>
@@ -11,12 +9,6 @@
 #import <ifaddrs.h>
 #import <mach/mach_time.h>
 
-// Private API chup man hinh phan cung IOSurface
-extern IOSurfaceRef UIWindowCreateIOSurface(void) __attribute__((weak_import));
-typedef void (*p_CARenderServerRenderDisplay)(kern_return_t a, CFStringRef b, IOSurfaceRef surface, int x, int y);
-static p_CARenderServerRenderDisplay fnRenderDisplay = NULL;
-
-// Private API IOHIDEvent & BackBoardServices
 typedef void* IOHIDEventSystemClientRef;
 typedef void* IOHIDEventRef;
 typedef IOHIDEventSystemClientRef (*p_IOHIDEventSystemClientCreate)(CFAllocatorRef allocator);
@@ -25,7 +17,7 @@ typedef IOHIDEventRef (*p_IOHIDEventCreateDigitizerFingerEvent)(CFAllocatorRef a
 typedef void (*p_IOHIDEventAppendEvent)(IOHIDEventRef parent, IOHIDEventRef child, uint32_t options);
 typedef void (*p_IOHIDEventSetIntegerValue)(IOHIDEventRef event, uint32_t field, CFIndex value);
 typedef void (*p_IOHIDEventSystemClientDispatchEvent)(IOHIDEventSystemClientRef client, IOHIDEventRef event);
-typedef void (*p_BKSHIDEventSendToFocusedProcess)(IOHIDEventRef event);
+typedef void (*p_BKSHIDEventSetDigitizerInfo)(IOHIDEventRef event, uint32_t contextID, boolean_t systemGestureisPossible, boolean_t isSystemGestureStateChangeEvent, CFStringRef displayUUID, CFTimeInterval initialTouchTimestamp, float maxForce);
 
 static IOHIDEventSystemClientRef hidClient = NULL;
 static p_IOHIDEventCreateDigitizerEvent fnCreateDigitizerEvent = NULL;
@@ -33,12 +25,14 @@ static p_IOHIDEventCreateDigitizerFingerEvent fnCreateFingerEvent = NULL;
 static p_IOHIDEventAppendEvent fnAppendEvent = NULL;
 static p_IOHIDEventSetIntegerValue fnSetIntValue = NULL;
 static p_IOHIDEventSystemClientDispatchEvent fnDispatchEvent = NULL;
-static p_BKSHIDEventSendToFocusedProcess fnSendToFocused = NULL;
+static p_BKSHIDEventSetDigitizerInfo fnBKSSetDigitizerInfo = NULL;
 
-void initPrivateAPIs() {
-    void *qc = dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_NOW);
-    if (qc) fnRenderDisplay = (p_CARenderServerRenderDisplay)dlsym(qc, "CARenderServerRenderDisplay");
+static NSData *latestJpegData = nil;
+static NSLock *frameLock = nil;
+static CIContext *ciContext = nil;
+static NSString *captureStatus = @"Dang khoi dong...";
 
+void initHID() {
     void *io = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
     if (io) {
         p_IOHIDEventSystemClientCreate fnCreate = (p_IOHIDEventSystemClientCreate)dlsym(io, "IOHIDEventSystemClientCreate");
@@ -49,15 +43,14 @@ void initPrivateAPIs() {
         fnDispatchEvent = (p_IOHIDEventSystemClientDispatchEvent)dlsym(io, "IOHIDEventSystemClientDispatchEvent");
         if (fnCreate) hidClient = fnCreate(kCFAllocatorDefault);
     }
-
     void *bks = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
     if (bks) {
-        fnSendToFocused = (p_BKSHIDEventSendToFocusedProcess)dlsym(bks, "BKSHIDEventSendToFocusedProcess");
+        fnBKSSetDigitizerInfo = (p_BKSHIDEventSetDigitizerInfo)dlsym(bks, "BKSHIDEventSetDigitizerInfo");
     }
 }
 
 void sendTouch(double normX, double normY, int type) {
-    if (!fnCreateDigitizerEvent || !fnCreateFingerEvent) return;
+    if (!hidClient || !fnCreateDigitizerEvent || !fnCreateFingerEvent) return;
     uint64_t ts = mach_absolute_time();
     uint32_t eventMask = (type == 0) ? (1 | 2 | 4) : ((type == 1) ? 4 : (1 | 2));
     boolean_t isTouch = (type == 2) ? false : true;
@@ -71,55 +64,13 @@ void sendTouch(double normX, double normY, int type) {
             fnSetIntValue(finger, 0xB0019, 1);
         }
         fnAppendEvent(parent, finger, 0);
-        if (fnSendToFocused) {
-            fnSendToFocused(parent);
-        } else if (hidClient && fnDispatchEvent) {
-            fnDispatchEvent(hidClient, parent);
+        if (fnBKSSetDigitizerInfo) {
+            fnBKSSetDigitizerInfo(parent, 0, true, false, NULL, 0, 0);
         }
+        fnDispatchEvent(hidClient, parent);
         CFRelease(finger);
         CFRelease(parent);
     }
-}
-
-NSData* captureScreenJPEG() {
-    if (!fnRenderDisplay) return nil;
-    // Kich thuoc khung hinh giam 1/3 cua iPhone 12 Pro Max (428 x 926) de truyen muot qua Wi-Fi
-    int w = 428;
-    int h = 926;
-    int bytesPerRow = w * 4;
-    NSDictionary *props = @{
-        (__bridge NSString *)kIOSurfaceWidth: @(w),
-        (__bridge NSString *)kIOSurfaceHeight: @(h),
-        (__bridge NSString *)kIOSurfaceBytesPerElement: @(4),
-        (__bridge NSString *)kIOSurfaceBytesPerRow: @(bytesPerRow),
-        (__bridge NSString *)kIOSurfacePixelFormat: @(0x42475241) // 'BGRA'
-    };
-    IOSurfaceRef surface = IOSurfaceCreate((__bridge CFDictionaryRef)props);
-    if (!surface) return nil;
-
-    fnRenderDisplay(0, CFSTR("LCD"), surface, 0, 0);
-    IOSurfaceLock(surface, kIOSurfaceLockReadOnly, NULL);
-    void *baseAddr = IOSurfaceGetBaseAddress(surface);
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    CGContextRef ctx = CGBitmapContextCreate(baseAddr, w, h, 8, bytesPerRow, colorSpace, kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
-    CGImageRef cgImg = CGBitmapContextCreateImage(ctx);
-    IOSurfaceUnlock(surface, kIOSurfaceLockReadOnly, NULL);
-
-    NSMutableData *jpegData = [NSMutableData data];
-    if (cgImg) {
-        CGImageDestinationRef dest = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)jpegData, kUTTypeJPEG, 1, NULL);
-        if (dest) {
-            NSDictionary *opts = @{ (__bridge NSString *)kCGImageDestinationLossyCompressionQuality: @(0.55) };
-            CGImageDestinationAddImage(dest, cgImg, (__bridge CFDictionaryRef)opts);
-            CGImageDestinationFinalize(dest);
-            CFRelease(dest);
-        }
-        CGImageRelease(cgImg);
-    }
-    if (ctx) CGContextRelease(ctx);
-    if (colorSpace) CGColorSpaceRelease(colorSpace);
-    CFRelease(surface);
-    return jpegData;
 }
 
 NSString* getWiFiIP() {
@@ -138,14 +89,17 @@ NSString* getWiFiIP() {
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 @property (strong, nonatomic) UIWindow *window;
+@property (strong, nonatomic) UILabel *lbl;
 @property (strong, nonatomic) AVAudioEngine *audioEngine;
 @end
 
 @implementation AppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    initPrivateAPIs();
+    frameLock = [[NSLock alloc] init];
+    ciContext = [CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer: @NO}];
+    initHID();
     [UIApplication sharedApplication].idleTimerDisabled = YES;
-    
+
     // Giu app chay ngam lien tuc
     AVAudioSession *session = [AVAudioSession sharedInstance];
     [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
@@ -159,22 +113,72 @@ NSString* getWiFiIP() {
     UIViewController *vc = [[UIViewController alloc] init];
     vc.view.backgroundColor = [UIColor systemBackgroundColor];
 
-    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 120, self.window.bounds.size.width - 40, 260)];
-    lbl.numberOfLines = 0;
-    lbl.textAlignment = NSTextAlignmentCenter;
-    lbl.font = [UIFont systemFontOfSize:18 weight:UIFontWeightMedium];
-    lbl.text = [NSString stringWithFormat:@"iPhone Mirror & Control\n\nIP Wi-Fi: %@\nPort Hinh Anh: 9100\nPort Dieu Khien: 8888\nRender API: %@ | Touch API: %@",
-                getWiFiIP(),
-                fnRenderDisplay ? @"OK" : @"LOI",
-                fnSendToFocused ? @"BKS-OK" : @"HID"];
-    [vc.view addSubview:lbl];
+    self.lbl = [[UILabel alloc] initWithFrame:CGRectMake(20, 100, self.window.bounds.size.width - 40, 260)];
+    self.lbl.numberOfLines = 0;
+    self.lbl.textAlignment = NSTextAlignmentCenter;
+    self.lbl.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+    [vc.view addSubview:self.lbl];
+
+    UIButton *btnStart = [UIButton buttonWithType:UIButtonTypeSystem];
+    btnStart.frame = CGRectMake(50, 380, self.window.bounds.size.width - 100, 50);
+    [btnStart setTitle:@"Bat Dau Chieu Man Hinh" forState:UIControlStateNormal];
+    btnStart.backgroundColor = [UIColor systemBlueColor];
+    [btnStart setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    btnStart.layer.cornerRadius = 10;
+    [btnStart addTarget:self action:@selector(startReplayKitCapture) forControlEvents:UIControlEventTouchUpInside];
+    [vc.view addSubview:btnStart];
 
     self.window.rootViewController = vc;
     [self.window makeKeyAndVisible];
 
+    [self updateLabel];
     [self startControlServer];
     [self startScreenStreamServer];
+    
+    // Tu dong kich hoat ReplayKit sau 1 giay
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self startReplayKitCapture];
+    });
     return YES;
+}
+
+- (void)updateLabel {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.lbl.text = [NSString stringWithFormat:@"iPhone Mirror & Control\n\nIP Wi-Fi: %@\nPort Hinh Anh: 9100 | Dieu Khien: 8888\nReplayKit: %@", getWiFiIP(), captureStatus];
+    });
+}
+
+- (void)startReplayKitCapture {
+    RPScreenRecorder *recorder = [RPScreenRecorder sharedRecorder];
+    recorder.microphoneEnabled = NO;
+    [recorder startCaptureWithHandler:^(CMSampleBufferRef sampleBuffer, RPSampleBufferType bufferType, NSError *error) {
+        if (bufferType == RPSampleBufferTypeVideo && CMSampleBufferDataIsReady(sampleBuffer)) {
+            CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+            if (imageBuffer) {
+                CIImage *ciImage = [CIImage imageWithCVPixelBuffer:imageBuffer];
+                // Thu nho ty le 0.35 lan de truyen qua Wi-Fi cuc nhanh (khoang 450x972)
+                CIImage *scaled = [ciImage imageByApplyingTransform:CGAffineTransformMakeScale(0.35, 0.35)];
+                CGImageRef cgImg = [ciContext createCGImage:scaled fromRect:scaled.extent];
+                if (cgImg) {
+                    UIImage *uiImg = [UIImage imageWithCGImage:cgImg];
+                    NSData *jpg = UIImageJPEGRepresentation(uiImg, 0.55);
+                    if (jpg) {
+                        [frameLock lock];
+                        latestJpegData = jpg;
+                        [frameLock unlock];
+                    }
+                    CGImageRelease(cgImg);
+                }
+            }
+        }
+    } completionHandler:^(NSError *error) {
+        if (error) {
+            captureStatus = [NSString stringWithFormat:@"Loi: %@", error.localizedDescription];
+        } else {
+            captureStatus = @"DANG PHAT TRUC TIEP (OK)";
+        }
+        [self updateLabel];
+    }];
 }
 
 - (void)startControlServer {
@@ -227,14 +231,16 @@ NSString* getWiFiIP() {
             send(client_fd, [header UTF8String], header.length, 0);
 
             while (1) {
-                @autoreleasepool {
-                    NSData *jpg = captureScreenJPEG();
-                    if (jpg && jpg.length > 0) {
-                        NSString *partHeader = [NSString stringWithFormat:@"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %lu\r\n\r\n", (unsigned long)jpg.length];
-                        if (send(client_fd, [partHeader UTF8String], partHeader.length, 0) <= 0) break;
-                        if (send(client_fd, jpg.bytes, jpg.length, 0) <= 0) break;
-                        if (send(client_fd, "\r\n", 2, 0) <= 0) break;
-                    }
+                NSData *jpg = nil;
+                [frameLock lock];
+                jpg = latestJpegData;
+                [frameLock unlock];
+
+                if (jpg && jpg.length > 0) {
+                    NSString *partHeader = [NSString stringWithFormat:@"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %lu\r\n\r\n", (unsigned long)jpg.length];
+                    if (send(client_fd, [partHeader UTF8String], partHeader.length, 0) <= 0) break;
+                    if (send(client_fd, jpg.bytes, jpg.length, 0) <= 0) break;
+                    if (send(client_fd, "\r\n", 2, 0) <= 0) break;
                 }
                 usleep(33000); // ~30 FPS
             }
@@ -245,8 +251,6 @@ NSString* getWiFiIP() {
 @end
 
 int main(int argc, char * argv[]) {
-    setuid(0);
-    setgid(0);
     @autoreleasepool {
         return UIApplicationMain(argc, argv, nil, NSStringFromClass([AppDelegate class]));
     }

@@ -18,10 +18,12 @@
     <true/>
     <key>com.apple.frontboard.launchapplications</key>
     <true/>
-    <key>com.apple.QuartzCore.display</key>
+    <key>com.apple.private.replaykit.screen-recording</key>
     <true/>
-    <key>com.apple.private.allow-explicit-graphics-priority</key>
-    <true/>
+    <key>com.apple.private.tcc.allow</key>
+    <array>
+        <string>kTCCServiceScreenCapture</string>
+    </array>
     <key>com.apple.multitasking.unlimitedassertions</key>
     <true/>
 </dict>
