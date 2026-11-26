@@ -6,37 +6,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-trollvnc:
+  get-trollvnc:
     runs-on: macos-latest
 
     steps:
-      - name: Tai cau hinh repo
-        uses: actions/checkout@v4
-
-      - name: Cai dat cong cu Theos & ldid
+      - name: Tai ban phat hanh TrollVNC IPA chinh thuc tu 82Flex
         run: |
-          brew install ldid dpkg
-          git clone --recursive https://github.com/theos/theos.git $HOME/theos
-          mkdir -p $HOME/theos/sdks
-          # Lien ket truc tiep SDK co san trong Xcode cua may chu Mac
-          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          ln -s "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
-
-      - name: Tai ma nguon TrollVNC
-        run: git clone --recursive https://github.com/Lessica/TrollVNC.git vnc_src
-
-      - name: Bien dich file IPA chuan cho TrollStore
-        run: |
-          export THEOS=$HOME/theos
-          export SYSROOT="$HOME/theos/sdks/iPhoneOS.sdk"
-          cd vnc_src
+          # Lay URL file .ipa moi nhat tu GitHub Releases cua 82Flex/TrollVNC
+          IPA_URL=$(curl -s https://api.github.com/repos/82Flex/TrollVNC/releases/latest | grep "browser_download_url.*\.ipa" | cut -d '"' -f 4 | head -n 1)
           
-          # Kiem tra xem TrollVNC co san script build TrollStore hay khong
-          if [ -f "build_trollstore.sh" ]; then
-            chmod +x build_trollstore.sh
-            ./build_trollstore.sh
-            cp packages/*.ipa ../TrollVNC_iOS16.ipa
+          if [ -n "$IPA_URL" ]; then
+            echo "Tim thay ban phat hanh chuan: $IPA_URL"
+            curl -L "$IPA_URL" -o TrollVNC_iOS16.ipa
           else
+            echo "Khong tim thay file .ipa san, chuyen sang tu bien dich tu 82Flex/TrollVNC..."
+            brew install ldid dpkg
+            git clone --recursive https://github.com/theos/theos.git $HOME/theos
+            mkdir -p $HOME/theos/sdks
+            ln -s "$(xcrun --sdk iphoneos --show-sdk-path)" "$HOME/theos/sdks/iPhoneOS.sdk"
+            
+            git clone --recursive https://github.com/82Flex/TrollVNC.git vnc_src
+            export THEOS=$HOME/theos
+            export SYSROOT="$HOME/theos/sdks/iPhoneOS.sdk"
+            cd vnc_src
             make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
             mkdir -p Payload
             APP_DIR=$(find .theos -name "*.app" | head -n 1)
