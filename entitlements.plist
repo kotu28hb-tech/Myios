@@ -12,11 +12,11 @@
     <true/>
     <key>com.apple.backboardd.launchapplications</key>
     <true/>
-    <key>com.apple.backboardd</key>
-    <true/>
     <key>com.apple.frontboard.launchapplications</key>
     <true/>
     <key>com.apple.multitasking.unlimitedassertions</key>
+    <true/>
+    <key>get-task-allow</key>
     <true/>
     <key>run-unsigned-code</key>
     <true/>

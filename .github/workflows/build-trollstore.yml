@@ -1,4 +1,4 @@
-name: Build TrollStore IPA
+name: Build WebDriverAgent TrollStore
 
 on:
   push:
@@ -6,31 +6,45 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-wda:
     runs-on: macos-latest
 
     steps:
-      - name: Tai ma nguon
+      - name: Tai cau hinh repo
         uses: actions/checkout@v4
 
-      - name: Cai dat ldid
+      - name: Cai dat cong cu ldid
         run: brew install ldid
 
-      - name: Bien dich va dong goi IPA
-        run: |
-          mkdir -p Payload/RemoteServer.app
-          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          xcrun -sdk iphoneos clang -arch arm64 \
-            -isysroot "$SDK_PATH" \
-            -mios-version-min=15.0 \
-            -framework Foundation -framework UIKit -framework CoreGraphics -framework IOKit -framework AVFoundation \
-            main.m -o Payload/RemoteServer.app/RemoteServer
-          cp Info.plist Payload/RemoteServer.app/Info.plist
-          ldid -Sentitlements.plist Payload/RemoteServer.app/RemoteServer
-          zip -r RemoteServer_TrollStore.ipa Payload
+      - name: Tai ma nguon WebDriverAgent chinh chu
+        run: git clone --depth 1 https://github.com/appium/WebDriverAgent.git wda_src
 
-      - name: Xuat file IPA
+      - name: Bien dich WebDriverAgentRunner (Khong can tai khoan Apple Dev)
+        run: |
+          cd wda_src
+          xcodebuild build-for-testing \
+            -project WebDriverAgent.xcodeproj \
+            -scheme WebDriverAgentRunner \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build_out \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+      - name: Gan quyen TrollStore va dong goi file IPA
+        run: |
+          mkdir -p Payload
+          APP_PATH=$(find wda_src/build_out -name "WebDriverAgentRunner-Runner.app" | head -n 1)
+          cp -r "$APP_PATH" Payload/
+          
+          # Ky quyen cho toan bo binary va framework ben trong WDA
+          find Payload/WebDriverAgentRunner-Runner.app -type f \( -name "*.dylib" -o -perm +111 \) -exec ldid -Sentitlements.plist {} \;
+          
+          zip -r WDA_TrollStore.ipa Payload
+
+      - name: Xuat file IPA thanh pham
         uses: actions/upload-artifact@v4
         with:
-          name: RemoteServer-IPA
-          path: RemoteServer_TrollStore.ipa
+          name: WDA-TrollStore-IPA
+          path: WDA_TrollStore.ipa
