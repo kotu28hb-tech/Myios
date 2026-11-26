@@ -13,48 +13,48 @@ jobs:
       - name: Tai ma nguon owngoal-dev/TrollVNC
         run: git clone --recursive https://github.com/owngoal-dev/TrollVNC.git vnc_src
 
-      - name: Cai dat Theos, ldid va tai SDK day du PrivateFrameworks
+      - name: Cai dat Theos, ldid va SDK 16.5
         run: |
           brew install ldid dpkg
           git clone --recursive https://github.com/theos/theos.git $HOME/theos
           mkdir -p $HOME/theos/sdks
-          
-          # Tai SDK iOS 16.5 da co san day du PrivateFrameworks (FrontBoardServices, BackBoardServices...)
           git clone --depth 1 https://github.com/theos/sdks.git $HOME/theos_sdks
           cp -r $HOME/theos_sdks/iPhoneOS16.5.sdk "$HOME/theos/sdks/"
 
-      - name: Bien dich va dong goi file .tipa chuan TrollStore
+      - name: Bien dich trollvncserver va ung dung TrollVNC.app
         run: |
           export THEOS=$HOME/theos
           export SYSROOT="$HOME/theos/sdks/iPhoneOS16.5.sdk"
           cd vnc_src
           
-          # Sao chep them PrivateFrameworks cua TrollVNC vao SDK neu can
-          if [ -d "PrivateFrameworks" ]; then
-            cp -rn PrivateFrameworks/* "$SYSROOT/System/Library/PrivateFrameworks/" 2>/dev/null || true
-          fi
-
-          # Kiem tra xem tac gia co de san workflow hoac script build trong repo khong
+          # Bo qua cac module Jailbreak (prefs, cc) va tat -fmodules de tranh loi Xcode 26
+          sed -i '' 's/SUBPROJECTS.*/SUBPROJECTS = app\/TrollVNC/' Makefile
+          
+          # Build trollvncserver va TrollVNC.app
+          make stage FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless ADDITIONAL_CFLAGS="-fno-modules" ADDITIONAL_OBJCFLAGS="-fno-modules"
+          
+          # Chay script dong goi TIPA neu co, hoac tu dong goi chuan cau truc TrollVNC
           if [ -f "devkit/build-tipa.sh" ]; then
             chmod +x devkit/build-tipa.sh
-            ./devkit/build-tipa.sh
-          else
-            make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+            ./devkit/build-tipa.sh || true
           fi
           
-          # Tim file .tipa hoac dong goi tu thu muc build
           OUT_FILE=$(find . -maxdepth 3 \( -name "*.tipa" -o -name "*.ipa" \) | head -n 1)
           if [ -n "$OUT_FILE" ]; then
             cp "$OUT_FILE" ../TrollVNC_iOS16.tipa
           else
-            # Dong goi thu cong theo cau truc TrollStore (app + daemon trollvncserver)
             mkdir -p Payload
             APP_DIR=$(find .theos -name "TrollVNC.app" | head -n 1)
             cp -r "$APP_DIR" Payload/
             SERVER_BIN=$(find .theos -name "trollvncserver" -type f | head -n 1)
-            if [ -n "$SERVER_BIN" ]; then
-              cp "$SERVER_BIN" Payload/TrollVNC.app/
-            fi
+            cp "$SERVER_BIN" Payload/TrollVNC.app/
+            
+            # Ky quyen entitlements co san trong repo TrollVNC
+            ENT_APP=$(find . -name "*TrollVNC*entitlements*.plist" -o -name "entitlements.plist" | head -n 1)
+            ENT_SRV=$(find . -name "*server*entitlements*.plist" | head -n 1)
+            if [ -n "$ENT_APP" ]; then ldid -S"$ENT_APP" Payload/TrollVNC.app/TrollVNC; fi
+            if [ -n "$ENT_SRV" ]; then ldid -S"$ENT_SRV" Payload/TrollVNC.app/trollvncserver; fi
+            
             zip -r ../TrollVNC_iOS16.tipa Payload
           fi
 
