@@ -34,23 +34,24 @@ jobs:
           
           mkdir -p Payload/TrollVNC.app
           
-          # Tim chinh xac TrollVNC.app va trollvncserver ben trong .theos
           APP_SRC=$(find .theos -type d -name "TrollVNC.app" | head -n 1)
           SRV_SRC=$(find .theos -type f -name "trollvncserver" | head -n 1)
           
-          if [ -z "$APP_SRC" ] || [ -z "$SRV_SRC" ]; then
-            echo "Khong tim thay file build!"
-            find .theos -maxdepth 5
-            exit 1
-          fi
-          
           cp -rn "$APP_SRC/"* Payload/TrollVNC.app/
           cp "$SRV_SRC" Payload/TrollVNC.app/trollvncserver
-          chmod +x Payload/TrollVNC.app/TrollVNC
-          chmod +x Payload/TrollVNC.app/trollvncserver
+          chmod 755 Payload/TrollVNC.app/TrollVNC
+          chmod 755 Payload/TrollVNC.app/trollvncserver
           
-          ldid -Sapp/TrollVNC/entitlements.plist Payload/TrollVNC.app/TrollVNC 2>/dev/null || ldid -Sentitlements.plist Payload/TrollVNC.app/TrollVNC
-          ldid -Sentitlements.plist Payload/TrollVNC.app/trollvncserver
+          # Tu dong tim dung file entitlements ben trong repo (khong bao loi neu khac ten)
+          APP_ENT=$(find . -name "*entitlements*.plist" | grep -i "app\|TrollVNC" | head -n 1)
+          SRV_ENT=$(find . -name "*entitlements*.plist" | grep -vi "app\|TrollVNC" | head -n 1)
+          
+          if [ -n "$APP_ENT" ] && [ -f "$APP_ENT" ]; then
+            ldid -S"$APP_ENT" Payload/TrollVNC.app/TrollVNC
+          fi
+          if [ -n "$SRV_ENT" ] && [ -f "$SRV_ENT" ]; then
+            ldid -S"$SRV_ENT" Payload/TrollVNC.app/trollvncserver
+          fi
           
           zip -r ../TrollVNC_Fixed.tipa Payload
 
