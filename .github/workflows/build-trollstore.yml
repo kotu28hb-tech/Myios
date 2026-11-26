@@ -25,7 +25,7 @@ jobs:
             -isysroot "$SDK_PATH" \
             -mios-version-min=15.0 \
             -fobjc-arc \
-            -framework Foundation -framework UIKit -framework ReplayKit -framework CoreImage -framework CoreMedia -framework CoreVideo -framework AVFoundation -framework IOKit \
+            -framework Foundation -framework UIKit -framework ReplayKit -framework CoreGraphics -framework CoreImage -framework CoreMedia -framework CoreVideo -framework AVFoundation -framework IOKit \
             server.m -o Payload/iOSMirror.app/iOSMirror
 
           cat << 'EOF' > Payload/iOSMirror.app/Info.plist
