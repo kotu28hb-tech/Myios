@@ -19,7 +19,7 @@ jobs:
       - name: Tai ma nguon WebDriverAgent chinh chu
         run: git clone --depth 1 https://github.com/appium/WebDriverAgent.git wda_src
 
-      - name: Bien dich WebDriverAgentRunner (Khong can tai khoan Apple Dev)
+      - name: Bien dich WebDriverAgentRunner (Tuong thich iOS 15-16)
         run: |
           cd wda_src
           xcodebuild build-for-testing \
@@ -27,19 +27,35 @@ jobs:
             -scheme WebDriverAgentRunner \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build_out \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-      - name: Gan quyen TrollStore va dong goi file IPA
+      - name: Gan quyen TrollStore va dong goi file IPA chuan
         run: |
           mkdir -p Payload
           APP_PATH=$(find wda_src/build_out -name "WebDriverAgentRunner-Runner.app" | head -n 1)
           cp -r "$APP_PATH" Payload/
           
-          # Ky quyen cho toan bo binary va framework ben trong WDA
-          find Payload/WebDriverAgentRunner-Runner.app -type f \( -name "*.dylib" -o -perm +111 \) -exec ldid -Sentitlements.plist {} \;
+          # Xoa bo thu muc _CodeSignature cu de tranh xung dot khi TrollStore cai dat
+          find Payload/WebDriverAgentRunner-Runner.app -name "_CodeSignature" -exec rm -rf {} +
+          
+          # Chi ky entitlements vao 2 file thuc thi chinh
+          ldid -Sentitlements.plist Payload/WebDriverAgentRunner-Runner.app/WebDriverAgentRunner-Runner
+          ldid -Sentitlements.plist Payload/WebDriverAgentRunner-Runner.app/PlugIns/WebDriverAgentRunner.xctest/WebDriverAgentRunner
+          
+          # Ky ad-hoc cho cac file dylib ben trong Frameworks (neu co)
+          if [ -d "Payload/WebDriverAgentRunner-Runner.app/Frameworks" ]; then
+            find Payload/WebDriverAgentRunner-Runner.app/Frameworks -name "*.dylib" -exec ldid -S {} \;
+            for fw in Payload/WebDriverAgentRunner-Runner.app/Frameworks/*.framework; do
+              fw_name=$(basename "$fw" .framework)
+              if [ -f "$fw/$fw_name" ]; then
+                ldid -S "$fw/$fw_name"
+              fi
+            done
+          fi
           
           zip -r WDA_TrollStore.ipa Payload
 
