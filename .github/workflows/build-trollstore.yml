@@ -19,7 +19,7 @@ jobs:
       - name: Tai ma nguon WebDriverAgent chinh chu
         run: git clone --depth 1 https://github.com/appium/WebDriverAgent.git wda_src
 
-      - name: Bien dich WebDriverAgentLib (Framework loi)
+      - name: Bien dich WebDriverAgentLib (Static Library)
         run: |
           cd wda_src
           xcodebuild build \
@@ -37,20 +37,25 @@ jobs:
         run: |
           mkdir -p Payload/WDA.app
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          LIB_PATH=$(find wda_src/build_out -name "WebDriverAgentLib" -o -name "libWebDriverAgentLib.a" | head -n 1)
+          PLAT_PATH=$(xcrun --sdk iphoneos --show-sdk-platform-path)
           
-          # Bien dich app chinh lien ket tinh voi WebDriverAgentLib
-          xcrun -sdk iphoneos clang -arch arm64 \
+          # Tim chinh xac file thu vien tinh da build
+          LIB_PATH=$(find wda_src/build_out/Build/Products -name "WebDriverAgentLib" -o -name "libWebDriverAgentLib.a" | head -n 1)
+          echo "Thu vien tim thay: $LIB_PATH"
+          
+          # Tu dong thu thap tat ca thu muc chua file .h trong wda_src
+          INC_FLAGS=$(find wda_src/WebDriverAgentLib wda_src/PrivateHeaders -type d 2>/dev/null | sed 's/^/-I/')
+          
+          # Bien dich bang clang++ de ho tro ca Objective-C va C++ ben trong WDA
+          xcrun -sdk iphoneos clang++ -arch arm64 \
             -isysroot "$SDK_PATH" \
             -mios-version-min=15.0 \
-            -ObjC \
+            -ObjC -fobjc-arc \
             -Iwda_src \
-            -Iwda_src/WebDriverAgentLib \
-            -Iwda_src/WebDriverAgentLib/Routing \
-            -Iwda_src/WebDriverAgentLib/Utilities \
+            $INC_FLAGS \
+            -F"$PLAT_PATH/Developer/Library/Frameworks" \
+            -F"$PLAT_PATH/Developer/Library/PrivateFrameworks" \
             -framework Foundation -framework UIKit -framework CoreGraphics -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework AVFoundation -framework MobileCoreServices -framework SystemConfiguration -framework Security -framework IOKit -framework XCTest \
-            -F"$(xcrun --sdk iphoneos --show-platform-path)/Developer/Library/Frameworks" \
-            -F"$(xcrun --sdk iphoneos --show-platform-path)/Developer/Library/PrivateFrameworks" \
             wda_main.m "$LIB_PATH" -o Payload/WDA.app/WDA
 
           # Tao Info.plist chuan
@@ -82,7 +87,7 @@ jobs:
           </plist>
           EOF
 
-          # Gan quyen TrollStore truc tiep vao file thuc thi duy nhat
+          # Gan quyen TrollStore va kiem tra tinh hop le cua file Mach-O
           ldid -Sentitlements.plist Payload/WDA.app/WDA
           zip -r WDA_TrollStore.ipa Payload
 

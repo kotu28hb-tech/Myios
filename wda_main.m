@@ -1,6 +1,6 @@
 #import <UIKit/UIKit.h>
-#import <WebDriverAgentLib/FBWebServer.h>
-#import <WebDriverAgentLib/FBConfiguration.h>
+#import "FBWebServer.h"
+#import "FBConfiguration.h"
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 @property (strong, nonatomic) UIWindow *window;
