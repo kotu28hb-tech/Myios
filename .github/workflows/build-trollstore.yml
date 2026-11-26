@@ -1,4 +1,4 @@
-name: Build Native iOS Mirror & Control
+name: Build TrollVNC from owngoal-dev
 
 on:
   push:
@@ -6,37 +6,50 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-trollvnc:
     runs-on: macos-latest
 
     steps:
-      - name: Tai ma nguon tu repo Myios
-        uses: actions/checkout@v4
+      - name: Tai ma nguon owngoal-dev/TrollVNC
+        run: git clone --recursive https://github.com/owngoal-dev/TrollVNC.git vnc_src
 
-      - name: Cai dat ldid
-        run: brew install ldid
-
-      - name: Kiem tra cu phap XML & Bien dich server.m
+      - name: Cai dat Theos, ldid va SDK
         run: |
-          plutil -lint Info.plist
-          plutil -lint entitlements.plist
-          
-          mkdir -p Payload/iOSMirror.app
-          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          
-          xcrun -sdk iphoneos clang -arch arm64 \
-            -isysroot "$SDK_PATH" \
-            -mios-version-min=15.0 \
-            -fobjc-arc \
-            -framework Foundation -framework UIKit -framework CoreGraphics -framework ReplayKit -framework CoreImage -framework CoreMedia -framework CoreVideo -framework AVFoundation -framework IOKit \
-            server.m -o Payload/iOSMirror.app/iOSMirror
+          brew install ldid dpkg
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          mkdir -p $HOME/theos/sdks
+          ln -s "$(xcrun --sdk iphoneos --show-sdk-path)" "$HOME/theos/sdks/iPhoneOS.sdk"
 
-          cp Info.plist Payload/iOSMirror.app/Info.plist
-          ldid -Sentitlements.plist Payload/iOSMirror.app/iOSMirror
-          zip -r iOSMirror_TrollStore.ipa Payload
+      - name: Bien dich goi cai dat TrollStore
+        run: |
+          export THEOS=$HOME/theos
+          export SYSROOT="$HOME/theos/sdks/iPhoneOS.sdk"
+          cd vnc_src
+          
+          # Chay script dong goi co san cua TrollVNC neu co, hoac build bang make
+          if [ -f "devkit/build-tipa.sh" ]; then
+            chmod +x devkit/build-tipa.sh
+            ./devkit/build-tipa.sh
+          elif [ -f "build_trollstore.sh" ]; then
+            chmod +x build_trollstore.sh
+            ./build_trollstore.sh
+          else
+            make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          fi
+          
+          # Gom file .tipa hoac .ipa thanh pham
+          OUT_FILE=$(find . -maxdepth 3 \( -name "*.tipa" -o -name "*.ipa" \) | head -n 1)
+          if [ -n "$OUT_FILE" ]; then
+            cp "$OUT_FILE" ../TrollVNC_iOS16.tipa
+          else
+            mkdir -p Payload
+            APP_DIR=$(find .theos -name "*.app" | head -n 1)
+            cp -r "$APP_DIR" Payload/
+            zip -r ../TrollVNC_iOS16.tipa Payload
+          fi
 
-      - name: Xuat file IPA thanh pham
+      - name: Xuat file TrollVNC_iOS16.tipa
         uses: actions/upload-artifact@v4
         with:
-          name: iOSMirror-IPA
-          path: iOSMirror_TrollStore.ipa
+          name: TrollVNC-iOS16-TIPA
+          path: TrollVNC_iOS16.tipa
