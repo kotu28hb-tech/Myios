@@ -16,8 +16,11 @@ jobs:
       - name: Cai dat ldid
         run: brew install ldid
 
-      - name: Bien dich server.m thanh file IPA TrollStore
+      - name: Kiem tra cu phap XML & Bien dich server.m
         run: |
+          plutil -lint Info.plist
+          plutil -lint entitlements.plist
+          
           mkdir -p Payload/iOSMirror.app
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
           
@@ -25,37 +28,10 @@ jobs:
             -isysroot "$SDK_PATH" \
             -mios-version-min=15.0 \
             -fobjc-arc \
-            -framework Foundation -framework UIKit -framework ReplayKit -framework CoreGraphics -framework CoreImage -framework CoreMedia -framework CoreVideo -framework AVFoundation -framework IOKit \
+            -framework Foundation -framework UIKit -framework CoreGraphics -framework ReplayKit -framework CoreImage -framework CoreMedia -framework CoreVideo -framework AVFoundation -framework IOKit \
             server.m -o Payload/iOSMirror.app/iOSMirror
 
-          cat << 'EOF' > Payload/iOSMirror.app/Info.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>iOSMirror</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.kotu28hb.iosmirror</string>
-              <key>CFBundleName</key>
-              <string>iOSMirror</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>LSRequiresIPhoneOS</key>
-              <true/>
-              <key>UIBackgroundModes</key>
-              <array>
-                  <string>audio</string>
-                  <string>voip</string>
-              </array>
-          </dict>
-          </plist>
-          EOF
-
+          cp Info.plist Payload/iOSMirror.app/Info.plist
           ldid -Sentitlements.plist Payload/iOSMirror.app/iOSMirror
           zip -r iOSMirror_TrollStore.ipa Payload
 

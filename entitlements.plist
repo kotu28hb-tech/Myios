@@ -6,8 +6,6 @@
     <true/>
     <key>com.apple.private.security.no-sandbox</key>
     <true/>
-    <key>com.apple.private.persona-mgmt</key>
-    <true/>
     <key>com.apple.private.hid.client.event-dispatch</key>
     <true/>
     <key>com.apple.private.hid.manager.client</key>
@@ -21,6 +19,8 @@
     <key>com.apple.private.replaykit.screen-recording</key>
     <true/>
     <key>com.apple.multitasking.unlimitedassertions</key>
+    <true/>
+    <key>run-unsigned-code</key>
     <true/>
 </dict>
 </plist>

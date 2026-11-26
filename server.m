@@ -3,6 +3,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <CoreImage/CoreImage.h>
 #import <dlfcn.h>
+#import <signal.h>
 #import <sys/socket.h>
 #import <netinet/in.h>
 #import <arpa/inet.h>
@@ -16,6 +17,7 @@ typedef IOHIDEventRef (*p_IOHIDEventCreateDigitizerEvent)(CFAllocatorRef allocat
 typedef IOHIDEventRef (*p_IOHIDEventCreateDigitizerFingerEvent)(CFAllocatorRef allocator, uint64_t timeStamp, uint32_t index, uint32_t identity, uint32_t eventMask, double x, double y, double z, double tipPressure, double twist, boolean_t range, boolean_t touch, uint32_t options);
 typedef void (*p_IOHIDEventAppendEvent)(IOHIDEventRef parent, IOHIDEventRef child, uint32_t options);
 typedef void (*p_IOHIDEventSetIntegerValue)(IOHIDEventRef event, uint32_t field, CFIndex value);
+typedef void (*p_IOHIDEventSetSenderID)(IOHIDEventRef event, uint64_t senderID);
 typedef void (*p_IOHIDEventSystemClientDispatchEvent)(IOHIDEventSystemClientRef client, IOHIDEventRef event);
 typedef void (*p_BKSHIDEventSetDigitizerInfo)(IOHIDEventRef event, uint32_t contextID, boolean_t systemGestureisPossible, boolean_t isSystemGestureStateChangeEvent, CFStringRef displayUUID, CFTimeInterval initialTouchTimestamp, float maxForce);
 
@@ -24,6 +26,7 @@ static p_IOHIDEventCreateDigitizerEvent fnCreateDigitizerEvent = NULL;
 static p_IOHIDEventCreateDigitizerFingerEvent fnCreateFingerEvent = NULL;
 static p_IOHIDEventAppendEvent fnAppendEvent = NULL;
 static p_IOHIDEventSetIntegerValue fnSetIntValue = NULL;
+static p_IOHIDEventSetSenderID fnSetSenderID = NULL;
 static p_IOHIDEventSystemClientDispatchEvent fnDispatchEvent = NULL;
 static p_BKSHIDEventSetDigitizerInfo fnBKSSetDigitizerInfo = NULL;
 
@@ -31,6 +34,7 @@ static NSData *latestJpegData = nil;
 static NSLock *frameLock = nil;
 static CIContext *ciContext = nil;
 static NSString *captureStatus = @"San sang (Bam nut ben duoi)";
+static uint64_t lastFrameTime = 0;
 
 void initHID() {
     void *io = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
@@ -40,6 +44,7 @@ void initHID() {
         fnCreateFingerEvent = (p_IOHIDEventCreateDigitizerFingerEvent)dlsym(io, "IOHIDEventCreateDigitizerFingerEvent");
         fnAppendEvent = (p_IOHIDEventAppendEvent)dlsym(io, "IOHIDEventAppendEvent");
         fnSetIntValue = (p_IOHIDEventSetIntegerValue)dlsym(io, "IOHIDEventSetIntegerValue");
+        fnSetSenderID = (p_IOHIDEventSetSenderID)dlsym(io, "IOHIDEventSetSenderID");
         fnDispatchEvent = (p_IOHIDEventSystemClientDispatchEvent)dlsym(io, "IOHIDEventSystemClientDispatchEvent");
         if (fnCreate) hidClient = fnCreate(kCFAllocatorDefault);
     }
@@ -60,8 +65,12 @@ void sendTouch(double normX, double normY, int type) {
     IOHIDEventRef finger = fnCreateFingerEvent(kCFAllocatorDefault, ts, 1, 2, eventMask, normX, normY, 0, pressure, 0, isTouch, isTouch, 0);
     if (parent && finger) {
         if (fnSetIntValue) {
-            fnSetIntValue(parent, 0xB0019, 1);
+            fnSetIntValue(parent, 0xB0019, 1); // IsDisplayIntegrated
             fnSetIntValue(finger, 0xB0019, 1);
+            fnSetIntValue(parent, 0x4, 1);     // BuiltIn
+        }
+        if (fnSetSenderID) {
+            fnSetSenderID(parent, 0x8000000817319372ULL);
         }
         fnAppendEvent(parent, finger, 0);
         if (fnBKSSetDigitizerInfo) {
@@ -74,7 +83,7 @@ void sendTouch(double normX, double normY, int type) {
 }
 
 NSString* getWiFiIP() {
-    NSString *address = @"127.0.0.1";
+    NSString *address = @"Khong co Wi-Fi";
     struct ifaddrs *interfaces = NULL;
     if (getifaddrs(&interfaces) == 0) {
         for (struct ifaddrs *temp = interfaces; temp != NULL; temp = temp->ifa_next) {
@@ -95,11 +104,13 @@ NSString* getWiFiIP() {
 
 @implementation AppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    signal(SIGPIPE, SIG_IGN); // Chan loi crash khi Windows ngat ket noi dot ngot
     frameLock = [[NSLock alloc] init];
-    ciContext = [CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer: @NO}];
+    ciContext = [CIContext contextWithOptions:@{kCIContextUseSoftwareRenderer: @NO, kCIContextCacheIntermediates: @NO}];
     initHID();
     [UIApplication sharedApplication].idleTimerDisabled = YES;
 
+    // Giu tien trinh song vinh vien duoi nen
     AVAudioSession *session = [AVAudioSession sharedInstance];
     [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
     [session setActive:YES error:nil];
@@ -138,7 +149,11 @@ NSString* getWiFiIP() {
 
 - (void)updateLabel {
     dispatch_async(dispatch_get_main_queue(), ^{
-        self.lbl.text = [NSString stringWithFormat:@"iPhone Mirror & Control\n\nIP Wi-Fi: %@\nPort Hinh Anh: 9100 | Dieu Khien: 8888\nTrang thai: %@", getWiFiIP(), captureStatus];
+        self.lbl.text = [NSString stringWithFormat:@"iPhone Mirror & Control\n\nIP Wi-Fi: %@\nPort Hinh Anh: 9100 | Dieu Khien: 8888\nHID: %@ | BKS: %@\nTrang thai: %@",
+                        getWiFiIP(),
+                        hidClient ? @"OK" : @"LOI",
+                        fnBKSSetDigitizerInfo ? @"OK" : @"LOI",
+                        captureStatus];
     });
 }
 
@@ -152,20 +167,27 @@ NSString* getWiFiIP() {
     recorder.microphoneEnabled = NO;
     [recorder startCaptureWithHandler:^(CMSampleBufferRef sampleBuffer, RPSampleBufferType bufferType, NSError *error) {
         if (bufferType == RPSampleBufferTypeVideo && CMSampleBufferDataIsReady(sampleBuffer)) {
-            CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
-            if (imageBuffer) {
-                CIImage *ciImage = [CIImage imageWithCVPixelBuffer:imageBuffer];
-                CIImage *scaled = [ciImage imageByApplyingTransform:CGAffineTransformMakeScale(0.35, 0.35)];
-                CGImageRef cgImg = [ciContext createCGImage:scaled fromRect:scaled.extent];
-                if (cgImg) {
-                    UIImage *uiImg = [UIImage imageWithCGImage:cgImg];
-                    NSData *jpg = UIImageJPEGRepresentation(uiImg, 0.55);
-                    if (jpg) {
-                        [frameLock lock];
-                        latestJpegData = jpg;
-                        [frameLock unlock];
+            // Gioi han toi da 25 FPS (40ms/khung) de tiet kiem RAM khi chay ngam
+            uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+            if (now - lastFrameTime < 40000000ULL) return;
+            lastFrameTime = now;
+
+            @autoreleasepool {
+                CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+                if (imageBuffer) {
+                    CIImage *ciImage = [CIImage imageWithCVPixelBuffer:imageBuffer];
+                    CIImage *scaled = [ciImage imageByApplyingTransform:CGAffineTransformMakeScale(0.32, 0.32)];
+                    CGImageRef cgImg = [ciContext createCGImage:scaled fromRect:scaled.extent];
+                    if (cgImg) {
+                        UIImage *uiImg = [UIImage imageWithCGImage:cgImg];
+                        NSData *jpg = UIImageJPEGRepresentation(uiImg, 0.5);
+                        if (jpg) {
+                            [frameLock lock];
+                            latestJpegData = jpg;
+                            [frameLock unlock];
+                        }
+                        CGImageRelease(cgImg);
                     }
-                    CGImageRelease(cgImg);
                 }
             }
         }
@@ -194,6 +216,8 @@ NSString* getWiFiIP() {
         while (1) {
             int client_fd = accept(server_fd, NULL, NULL);
             if (client_fd < 0) continue;
+            int nosig = 1;
+            setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, sizeof(nosig));
             char buf[512];
             ssize_t n;
             while ((n = recv(client_fd, buf, sizeof(buf) - 1, 0)) > 0) {
@@ -224,23 +248,30 @@ NSString* getWiFiIP() {
         while (1) {
             int client_fd = accept(server_fd, NULL, NULL);
             if (client_fd < 0) continue;
+            int nosig = 1;
+            setsockopt(client_fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, sizeof(nosig));
             
             NSString *header = @"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n";
-            send(client_fd, [header UTF8String], header.length, 0);
+            if (send(client_fd, [header UTF8String], header.length, 0) <= 0) {
+                close(client_fd);
+                continue;
+            }
 
             while (1) {
-                NSData *jpg = nil;
-                [frameLock lock];
-                jpg = latestJpegData;
-                [frameLock unlock];
+                @autoreleasepool {
+                    NSData *jpg = nil;
+                    [frameLock lock];
+                    jpg = latestJpegData;
+                    [frameLock unlock];
 
-                if (jpg && jpg.length > 0) {
-                    NSString *partHeader = [NSString stringWithFormat:@"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %lu\r\n\r\n", (unsigned long)jpg.length];
-                    if (send(client_fd, [partHeader UTF8String], partHeader.length, 0) <= 0) break;
-                    if (send(client_fd, jpg.bytes, jpg.length, 0) <= 0) break;
-                    if (send(client_fd, "\r\n", 2, 0) <= 0) break;
+                    if (jpg && jpg.length > 0) {
+                        NSString *partHeader = [NSString stringWithFormat:@"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %lu\r\n\r\n", (unsigned long)jpg.length];
+                        if (send(client_fd, [partHeader UTF8String], partHeader.length, 0) <= 0) break;
+                        if (send(client_fd, jpg.bytes, jpg.length, 0) <= 0) break;
+                        if (send(client_fd, "\r\n", 2, 0) <= 0) break;
+                    }
                 }
-                usleep(33000);
+                usleep(40000); // ~25 FPS
             }
             close(client_fd);
         }
