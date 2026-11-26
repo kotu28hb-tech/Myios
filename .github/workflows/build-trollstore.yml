@@ -1,0 +1,36 @@
+﻿name: Build TrollStore IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Tai ma nguon
+        uses: actions/checkout@v4
+
+      - name: Cai dat ldid
+        run: brew install ldid
+
+      - name: Bien dich va dong goi IPA
+        run: |
+          mkdir -p Payload/RemoteServer.app
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun -sdk iphoneos clang -arch arm64 \
+            -isysroot "$SDK_PATH" \
+            -mios-version-min=15.0 \
+            -framework Foundation -framework UIKit -framework CoreGraphics -framework IOKit \
+            main.m -o Payload/RemoteServer.app/RemoteServer
+          cp Info.plist Payload/RemoteServer.app/Info.plist
+          ldid -Sentitlements.plist Payload/RemoteServer.app/RemoteServer
+          zip -r RemoteServer_TrollStore.ipa Payload
+
+      - name: Xuat file IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RemoteServer-IPA
+          path: RemoteServer_TrollStore.ipa
