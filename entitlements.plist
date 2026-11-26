@@ -20,10 +20,6 @@
     <true/>
     <key>com.apple.private.replaykit.screen-recording</key>
     <true/>
-    <key>com.apple.private.tcc.allow</key>
-    <array>
-        <string>kTCCServiceScreenCapture</string>
-    </array>
     <key>com.apple.multitasking.unlimitedassertions</key>
     <true/>
 </dict>

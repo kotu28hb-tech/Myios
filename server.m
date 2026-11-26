@@ -30,7 +30,7 @@ static p_BKSHIDEventSetDigitizerInfo fnBKSSetDigitizerInfo = NULL;
 static NSData *latestJpegData = nil;
 static NSLock *frameLock = nil;
 static CIContext *ciContext = nil;
-static NSString *captureStatus = @"Dang khoi dong...";
+static NSString *captureStatus = @"San sang (Bam nut ben duoi)";
 
 void initHID() {
     void *io = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
@@ -100,7 +100,6 @@ NSString* getWiFiIP() {
     initHID();
     [UIApplication sharedApplication].idleTimerDisabled = YES;
 
-    // Giu app chay ngam lien tuc
     AVAudioSession *session = [AVAudioSession sharedInstance];
     [session setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
     [session setActive:YES error:nil];
@@ -120,11 +119,11 @@ NSString* getWiFiIP() {
     [vc.view addSubview:self.lbl];
 
     UIButton *btnStart = [UIButton buttonWithType:UIButtonTypeSystem];
-    btnStart.frame = CGRectMake(50, 380, self.window.bounds.size.width - 100, 50);
+    btnStart.frame = CGRectMake(50, 380, self.window.bounds.size.width - 100, 52);
     [btnStart setTitle:@"Bat Dau Chieu Man Hinh" forState:UIControlStateNormal];
     btnStart.backgroundColor = [UIColor systemBlueColor];
     [btnStart setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    btnStart.layer.cornerRadius = 10;
+    btnStart.layer.cornerRadius = 12;
     [btnStart addTarget:self action:@selector(startReplayKitCapture) forControlEvents:UIControlEventTouchUpInside];
     [vc.view addSubview:btnStart];
 
@@ -134,29 +133,28 @@ NSString* getWiFiIP() {
     [self updateLabel];
     [self startControlServer];
     [self startScreenStreamServer];
-    
-    // Tu dong kich hoat ReplayKit sau 1 giay
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self startReplayKitCapture];
-    });
     return YES;
 }
 
 - (void)updateLabel {
     dispatch_async(dispatch_get_main_queue(), ^{
-        self.lbl.text = [NSString stringWithFormat:@"iPhone Mirror & Control\n\nIP Wi-Fi: %@\nPort Hinh Anh: 9100 | Dieu Khien: 8888\nReplayKit: %@", getWiFiIP(), captureStatus];
+        self.lbl.text = [NSString stringWithFormat:@"iPhone Mirror & Control\n\nIP Wi-Fi: %@\nPort Hinh Anh: 9100 | Dieu Khien: 8888\nTrang thai: %@", getWiFiIP(), captureStatus];
     });
 }
 
 - (void)startReplayKitCapture {
     RPScreenRecorder *recorder = [RPScreenRecorder sharedRecorder];
+    if (!recorder.isAvailable) {
+        captureStatus = @"ReplayKit khong kha dung";
+        [self updateLabel];
+        return;
+    }
     recorder.microphoneEnabled = NO;
     [recorder startCaptureWithHandler:^(CMSampleBufferRef sampleBuffer, RPSampleBufferType bufferType, NSError *error) {
         if (bufferType == RPSampleBufferTypeVideo && CMSampleBufferDataIsReady(sampleBuffer)) {
             CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
             if (imageBuffer) {
                 CIImage *ciImage = [CIImage imageWithCVPixelBuffer:imageBuffer];
-                // Thu nho ty le 0.35 lan de truyen qua Wi-Fi cuc nhanh (khoang 450x972)
                 CIImage *scaled = [ciImage imageByApplyingTransform:CGAffineTransformMakeScale(0.35, 0.35)];
                 CGImageRef cgImg = [ciContext createCGImage:scaled fromRect:scaled.extent];
                 if (cgImg) {
@@ -242,7 +240,7 @@ NSString* getWiFiIP() {
                     if (send(client_fd, jpg.bytes, jpg.length, 0) <= 0) break;
                     if (send(client_fd, "\r\n", 2, 0) <= 0) break;
                 }
-                usleep(33000); // ~30 FPS
+                usleep(33000);
             }
             close(client_fd);
         }
