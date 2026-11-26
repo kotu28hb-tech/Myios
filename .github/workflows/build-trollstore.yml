@@ -33,24 +33,33 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-      - name: Dong goi ung dung doc lap WDA.app cho TrollStore
+      - name: Dong goi WDA.app kem du thu vien Runtime cho iOS 16
         run: |
-          mkdir -p Payload/WDA.app
+          mkdir -p Payload/WDA.app/Frameworks
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
           PLAT_PATH=$(xcrun --sdk iphoneos --show-sdk-platform-path)
           
-          # Tim chinh xac file thu vien tinh da build
           LIB_PATH=$(find wda_src/build_out/Build/Products -name "WebDriverAgentLib" -o -name "libWebDriverAgentLib.a" | head -n 1)
-          echo "Thu vien tim thay: $LIB_PATH"
-          
-          # Tu dong thu thap tat ca thu muc chua file .h trong wda_src
           INC_FLAGS=$(find wda_src/WebDriverAgentLib wda_src/PrivateHeaders -type d 2>/dev/null | sed 's/^/-I/')
           
-          # Bien dich bang clang++ de ho tro ca Objective-C va C++ ben trong WDA
+          # Chep cac framework bat buoc cua XCTest vao ben trong WDA.app/Frameworks
+          for fw in XCTest.framework XCTAutomationSupport.framework XCUnit.framework XCUIAutomation.framework; do
+            if [ -d "$PLAT_PATH/Developer/Library/Frameworks/$fw" ]; then
+              cp -r "$PLAT_PATH/Developer/Library/Frameworks/$fw" Payload/WDA.app/Frameworks/
+            elif [ -d "$PLAT_PATH/Developer/Library/PrivateFrameworks/$fw" ]; then
+              cp -r "$PLAT_PATH/Developer/Library/PrivateFrameworks/$fw" Payload/WDA.app/Frameworks/
+            fi
+          done
+          
+          # Xoa _CodeSignature trong cac framework vua chep va ha phien ban toi thieu de ldid iOS 16 doc duoc
+          find Payload/WDA.app/Frameworks -name "_CodeSignature" -exec rm -rf {} +
+          
+          # Bien dich file thuc thi chinh voi rpath tro vao @executable_path/Frameworks
           xcrun -sdk iphoneos clang++ -arch arm64 \
             -isysroot "$SDK_PATH" \
             -mios-version-min=15.0 \
             -ObjC -fobjc-arc \
+            -Wl,-rpath,@executable_path/Frameworks \
             -Iwda_src \
             $INC_FLAGS \
             -F"$PLAT_PATH/Developer/Library/Frameworks" \
@@ -87,8 +96,15 @@ jobs:
           </plist>
           EOF
 
-          # Gan quyen TrollStore va kiem tra tinh hop le cua file Mach-O
+          # Ky quyen cho app chinh va cac framework con
           ldid -Sentitlements.plist Payload/WDA.app/WDA
+          for fw in Payload/WDA.app/Frameworks/*.framework; do
+            fw_name=$(basename "$fw" .framework)
+            if [ -f "$fw/$fw_name" ]; then
+              ldid -S "$fw/$fw_name" || rm -rf "$fw"
+            fi
+          done
+          
           zip -r WDA_TrollStore.ipa Payload
 
       - name: Xuat file IPA thanh pham
